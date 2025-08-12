@@ -1,94 +1,85 @@
-name: CI — Build (iPad Simulator) + Auto Release
+name: Build iOS IPA & Release
 
 on:
-  workflow_dispatch:
   push:
-    branches: [ main ]
+    branches:
+      - main
 
 jobs:
-  build-simulator:
+  build:
     runs-on: macos-15
+    env:
+      scheme_name: Ksign
+      proj_path: Ksign/Ksign.xcodeproj
+      archive_path: ${{ github.workspace }}/build/Ksign.xcarchive
+      export_path: ${{ github.workspace }}/output
+      ipa_name: Ksign.ipa
+
     steps:
-      # 1. Checkout repo
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-          fetch-depth: 0
+    - name: Checkout
+      uses: actions/checkout@v4
 
-      # 2. Chọn Xcode 16 stable
-      - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: latest-stable
+    - name: Set Xcode 16
+      run: sudo xcode-select -s "/Applications/Xcode_16.app"
 
-      # 3. Setup Ruby (để cài xcpretty hoặc CocoaPods)
-      - name: Setup Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: 3.1
+    - name: Create ExportOptions.plist
+      run: |
+        cat <<EOF > ExportOptions.plist
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+        "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>method</key>
+            <string>ad-hoc</string>
+            <key>compileBitcode</key>
+            <false/>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>stripSwiftSymbols</key>
+            <true/>
+            <key>provisioningProfiles</key>
+            <dict/>
+        </dict>
+        </plist>
+        EOF
 
-      # 4. Cài xcpretty
-      - name: Install xcpretty
-        run: gem install xcpretty
+    - name: Archive
+      run: |
+        xcodebuild \
+          -project "${proj_path}" \
+          -scheme "${scheme_name}" \
+          -configuration Release \
+          -sdk iphoneos \
+          -archivePath "${archive_path}" \
+          -skipPackagePluginValidation \
+          clean archive \
+          CODE_SIGNING_ALLOWED=NO \
+          CODE_SIGN_IDENTITY="" \
+          PROVISIONING_PROFILE_SPECIFIER="" \
+          DEVELOPMENT_TEAM="" \
+          ONLY_ACTIVE_ARCH=NO | xcpretty
 
-      # 5. Cài CocoaPods nếu có Podfile
-      - name: Install CocoaPods
-        run: |
-          if [ -f Podfile ]; then
-            gem install cocoapods --conservative
-            pod install
-          fi
+    - name: Export IPA
+      run: |
+        xcodebuild -exportArchive \
+          -archivePath "${archive_path}" \
+          -exportOptionsPlist ExportOptions.plist \
+          -exportPath "${export_path}"
+        mv "${export_path}"/*.ipa "${export_path}/${ipa_name}"
 
-      # 6. Tìm project và scheme
-      - name: Find Xcode project and scheme
-        id: findproj
-        run: |
-          proj_path=$(find . -name "*.xcodeproj" | head -n 1)
-          if [ -z "$proj_path" ]; then
-            echo "❌ Không tìm thấy file .xcodeproj"
-            exit 1
-          fi
-          echo "proj_path=$proj_path" >> $GITHUB_ENV
-          scheme_name=$(basename "$proj_path" .xcodeproj)
-          echo "scheme_name=$scheme_name" >> $GITHUB_ENV
-          echo "📂 Found project: $proj_path"
-          echo "📦 Scheme: $scheme_name"
+    - name: Create Tag
+      id: tag
+      run: |
+        TAG="build-$(date +'%Y%m%d-%H%M%S')"
+        git tag $TAG
+        git push origin $TAG
+        echo "tag=$TAG" >> $GITHUB_OUTPUT
 
-      # 7. Build simulator (ép iPad 10th gen iOS 18.0)
-      - name: Build (iOS simulator, no signing)
-        env:
-          CODE_SIGNING_ALLOWED: "NO"
-        run: |
-          xcodebuild \
-            -project "${{ env.proj_path }}" \
-            -scheme "${{ env.scheme_name }}" \
-            -configuration Release \
-            -sdk iphonesimulator \
-            -destination 'platform=iOS Simulator,name=iPad (10th generation),OS=18.0' \
-            -skipPackagePluginValidation \
-            clean build \
-            CODE_SIGNING_ALLOWED=NO \
-            ONLY_ACTIVE_ARCH=NO | xcpretty
-
-      # 8. Zip build output
-      - name: Zip build output
-        run: |
-          mkdir -p output
-          zip -r output/${{ env.scheme_name }}-simulator-build.zip build || true
-
-      # 9. Lấy tag hiện tại
-      - name: Get latest tag
-        id: get_tag
-        run: |
-          latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-          echo "latest_tag=$latest_tag" >> $GITHUB_ENV
-          echo "Latest tag: $latest_tag"
-
-      # 10. Tăng patch version
-      - name: Bump patch version
-        id: bump_tag
-        run: |
-          IFS='.' read -r major minor patch <<<"${latest_tag#v}"
-          patch=$((patch+1))
-          new_tag="v$major.$minor.$patch"
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.tag.outputs.tag }}
+        files: ${{ env.export_path }}/${{ env.ipa_name }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

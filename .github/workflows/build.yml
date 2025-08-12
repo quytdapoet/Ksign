@@ -1,4 +1,4 @@
-name: CI — Build (simulator) + Auto Release (Xcode 16)
+name: CI — Build (simulator) + Auto Release (Xcode 16, skip plugin validation)
 
 on:
   workflow_dispatch:
@@ -56,7 +56,7 @@ jobs:
           echo "📂 Found project: $proj_path"
           echo "📦 Scheme: $scheme_name"
 
-      # 7. Build simulator (no signing)
+      # 7. Build simulator (no signing, skip plugin validation, ép iPhone 15)
       - name: Build (iOS simulator, no signing)
         env:
           CODE_SIGNING_ALLOWED: "NO"
@@ -66,6 +66,8 @@ jobs:
             -scheme "${{ env.scheme_name }}" \
             -configuration Release \
             -sdk iphonesimulator \
+            -destination 'platform=iOS Simulator,name=iPhone 15' \
+            -skipPackagePluginValidation \
             clean build \
             CODE_SIGNING_ALLOWED=NO \
             ONLY_ACTIVE_ARCH=NO | xcpretty

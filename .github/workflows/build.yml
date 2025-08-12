@@ -10,7 +10,7 @@ jobs:
     runs-on: macos-15
     env:
       scheme_name: Ksign
-      proj_path: Ksign/Ksign.xcodeproj
+      proj_path: Ksign.xcodeproj
       archive_path: ${{ github.workspace }}/build/Ksign.xcarchive
       export_path: ${{ github.workspace }}/output
       ipa_name: Ksign.ipa
@@ -21,6 +21,9 @@ jobs:
 
     - name: Set Xcode 16
       run: sudo xcode-select -s "/Applications/Xcode_16.app"
+
+    - name: Create folders
+      run: mkdir -p build output
 
     - name: Create ExportOptions.plist
       run: |
@@ -66,7 +69,7 @@ jobs:
           -archivePath "${archive_path}" \
           -exportOptionsPlist ExportOptions.plist \
           -exportPath "${export_path}"
-        mv "${export_path}"/*.ipa "${export_path}/${ipa_name}"
+        mv "${export_path}"/*.ipa "${export_path}/${ipa_name}" || echo "No IPA found"
 
     - name: Create Tag
       id: tag

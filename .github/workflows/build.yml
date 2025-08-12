@@ -1,4 +1,4 @@
-name: CI — Build (simulator) + Auto Release
+name: CI — Build (simulator) + Auto Release (Xcode 16)
 
 on:
   workflow_dispatch:
@@ -8,26 +8,32 @@ on:
 jobs:
   build-simulator:
     name: Build for iOS Simulator and Release
-    runs-on: macos-latest
+    runs-on: macos-15   # Có Xcode 16 mặc định
     steps:
-      # 1. Checkout code + submodules
+      # 1. Checkout code
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: true
           fetch-depth: 0
 
-      # 2. Setup Ruby (cần để cài xcpretty hoặc CocoaPods)
+      # 2. Setup đúng version Xcode 16
+      - name: Setup Xcode 16
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      # 3. Setup Ruby (để cài xcpretty hoặc CocoaPods)
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: 3.1
 
-      # 3. Install xcpretty (fix lỗi command not found)
+      # 4. Install xcpretty (fix lỗi not found)
       - name: Install xcpretty
         run: gem install xcpretty
 
-      # 4. Install CocoaPods nếu có Podfile
+      # 5. Install CocoaPods nếu có Podfile
       - name: Install CocoaPods
         run: |
           if [ -f Podfile ]; then
@@ -35,8 +41,8 @@ jobs:
             pod install
           fi
 
-      # 5. Debug: Tìm file .xcodeproj
-      - name: Find Xcode projects
+      # 6. Tìm file .xcodeproj và scheme
+      - name: Find Xcode project and scheme
         id: findproj
         run: |
           proj_path=$(find . -name "*.xcodeproj" | head -n 1)
@@ -45,13 +51,12 @@ jobs:
             exit 1
           fi
           echo "proj_path=$proj_path" >> $GITHUB_ENV
-          # Lấy scheme từ tên file (bỏ .xcodeproj)
           scheme_name=$(basename "$proj_path" .xcodeproj)
           echo "scheme_name=$scheme_name" >> $GITHUB_ENV
           echo "📂 Found project: $proj_path"
           echo "📦 Scheme: $scheme_name"
 
-      # 6. Build simulator (no code signing)
+      # 7. Build simulator (no signing)
       - name: Build (iOS simulator, no signing)
         env:
           CODE_SIGNING_ALLOWED: "NO"
@@ -65,13 +70,13 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             ONLY_ACTIVE_ARCH=NO | xcpretty
 
-      # 7. Zip build output
+      # 8. Zip build output
       - name: Zip build output
         run: |
           mkdir -p output
           zip -r output/${{ env.scheme_name }}-simulator-build.zip build || true
 
-      # 8. Lấy tag hiện tại
+      # 9. Lấy tag hiện tại
       - name: Get latest tag
         id: get_tag
         run: |
@@ -79,7 +84,7 @@ jobs:
           echo "latest_tag=$latest_tag" >> $GITHUB_ENV
           echo "Latest tag: $latest_tag"
 
-      # 9. Tăng patch version
+      # 10. Tăng patch version
       - name: Bump patch version
         id: bump_tag
         run: |
@@ -89,7 +94,7 @@ jobs:
           echo "new_tag=$new_tag" >> $GITHUB_ENV
           echo "New tag: $new_tag"
 
-      # 10. Tạo tag mới và push
+      # 11. Tạo tag mới và push
       - name: Create new tag
         run: |
           git config user.name "github-actions[bot]"
@@ -97,7 +102,7 @@ jobs:
           git tag ${{ env.new_tag }}
           git push origin ${{ env.new_tag }}
 
-      # 11. Tạo GitHub Release và upload artifact
+      # 12. Tạo GitHub Release và upload artifact
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:

@@ -1,4 +1,4 @@
-name: CI — Build (simulator) + Auto Release (Xcode 16, skip plugin validation)
+name: CI — Build (iPad Simulator) + Auto Release
 
 on:
   workflow_dispatch:
@@ -7,18 +7,17 @@ on:
 
 jobs:
   build-simulator:
-    name: Build for iOS Simulator and Release
-    runs-on: macos-15   # Có Xcode 16 mặc định
+    runs-on: macos-15
     steps:
-      # 1. Checkout code
+      # 1. Checkout repo
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: true
           fetch-depth: 0
 
-      # 2. Setup đúng version Xcode 16
-      - name: Setup Xcode 16
+      # 2. Chọn Xcode 16 stable
+      - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
@@ -29,11 +28,11 @@ jobs:
         with:
           ruby-version: 3.1
 
-      # 4. Install xcpretty (fix lỗi not found)
+      # 4. Cài xcpretty
       - name: Install xcpretty
         run: gem install xcpretty
 
-      # 5. Install CocoaPods nếu có Podfile
+      # 5. Cài CocoaPods nếu có Podfile
       - name: Install CocoaPods
         run: |
           if [ -f Podfile ]; then
@@ -41,7 +40,7 @@ jobs:
             pod install
           fi
 
-      # 6. Tìm file .xcodeproj và scheme
+      # 6. Tìm project và scheme
       - name: Find Xcode project and scheme
         id: findproj
         run: |
@@ -56,7 +55,7 @@ jobs:
           echo "📂 Found project: $proj_path"
           echo "📦 Scheme: $scheme_name"
 
-      # 7. Build simulator (no signing, skip plugin validation, ép iPhone 15)
+      # 7. Build simulator (ép iPad 10th gen iOS 18.0)
       - name: Build (iOS simulator, no signing)
         env:
           CODE_SIGNING_ALLOWED: "NO"
@@ -66,7 +65,7 @@ jobs:
             -scheme "${{ env.scheme_name }}" \
             -configuration Release \
             -sdk iphonesimulator \
-            -destination 'platform=iOS Simulator,name=iPhone 15' \
+            -destination 'platform=iOS Simulator,name=iPad (10th generation),OS=18.0' \
             -skipPackagePluginValidation \
             clean build \
             CODE_SIGNING_ALLOWED=NO \
@@ -93,25 +92,3 @@ jobs:
           IFS='.' read -r major minor patch <<<"${latest_tag#v}"
           patch=$((patch+1))
           new_tag="v$major.$minor.$patch"
-          echo "new_tag=$new_tag" >> $GITHUB_ENV
-          echo "New tag: $new_tag"
-
-      # 11. Tạo tag mới và push
-      - name: Create new tag
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag ${{ env.new_tag }}
-          git push origin ${{ env.new_tag }}
-
-      # 12. Tạo GitHub Release và upload artifact
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.new_tag }}
-          name: "Release ${{ env.new_tag }}"
-          body: |
-            🚀 Auto-generated release for ${{ env.new_tag }}
-          files: output/${{ env.scheme_name }}-simulator-build.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
